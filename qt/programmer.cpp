@@ -59,13 +59,13 @@ void Programmer::connectCb(quint64 ret)
     QObject::disconnect(&reader, SIGNAL(result(quint64)), this,
         SLOT(connectCb(quint64)));
 
-    memcpy(&fwVersion, buffer.buf.data(), sizeof(fwVersion));
-
     if (ret == UINT64_MAX)
     {
         qCritical() << "Failed to read firmware version";
         return;
     }
+
+    memcpy(&fwVersion, buffer.buf.data(), sizeof(fwVersion));
 
     emit connectCompleted(ret);
 
@@ -154,6 +154,13 @@ void Programmer::readChipIdCb(quint64 ret)
     QTimer::singleShot(0, &reader, &Reader::stop);
     QObject::disconnect(&reader, SIGNAL(result(quint64)), this,
         SLOT(readChipIdCb(quint64)));
+
+    if (ret == UINT64_MAX)
+    {
+        qCritical() << "Failed to read chip ID";
+        emit readChipIdCompleted(ret);
+        return;
+    }
 
     memcpy(chipId_p, buffer.buf.data(), sizeof(ChipId));
 
@@ -495,13 +502,13 @@ void Programmer::getActiveImageCb(quint64 ret)
     QObject::disconnect(&reader, SIGNAL(result(quint64)), this,
         SLOT(getActiveImageCb(quint64)));
 
-    activeImage = buffer.buf.at(0);
-
     if (ret == UINT64_MAX)
     {
         qCritical() << "Failed to get active firmware image";
         goto Error;
     }
+
+    activeImage = buffer.buf.at(0);
 
     if (activeImage >= FIRMWARE_IMAGE_LAST)
     {
