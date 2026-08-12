@@ -24,3 +24,4 @@ qt/build/
 qt/cmake-build-debug/
 __pycache__/
 *.pyc
+mcp-server/venv/
