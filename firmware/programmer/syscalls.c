@@ -6,8 +6,30 @@
 #include <sys/reent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 int __io_putchar(int ch);
+
+/* Newer newlib's 64-bit printf support pulls these in (e.g. via abort());
+ * this bare-metal target never returns, so they only need to exist. */
+void _exit(int status)
+{
+    (void)status;
+    while (1);
+}
+
+int _kill(int pid, int sig)
+{
+    (void)pid;
+    (void)sig;
+    errno = EINVAL;
+    return -1;
+}
+
+int _getpid(void)
+{
+    return 1;
+}
 
 caddr_t _sbrk_r(struct _reent *r, int incr)
 {

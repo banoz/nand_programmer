@@ -7,6 +7,14 @@
 #define _LOG_H_
 
 #include <stdio.h>
+#include <inttypes.h>
+
+/* This repo targeted a 2015-era arm-none-eabi toolchain; newer newlib
+ * builds omit the C99 printf format macros from <inttypes.h> unless newlib
+ * itself was configured with IO_C99_FORMATS, so PRIx64 may be undefined. */
+#ifndef PRIx64
+#define PRIx64 "llx"
+#endif
 
 #ifdef DEBUG
     #define DEBUG_PRINT printf
