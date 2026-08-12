@@ -32,6 +32,10 @@ AR=$(TOOLCHAIN)ar
 
 SPL_FLAGS=-DSTM32F10X_HD -DCONFIG_BOOTLOADER
 CFLAGS=-g -Wall -Werror -O3  # Debugging flags: -g for debug symbols, -O0 for no optimization
+# Newer arm-none-eabi-gcc/newlib (this repo targeted a 2015-era toolchain)
+# ships an inttypes.h built without C99 format macros (PRIx64 etc.), so
+# treating -Wformat as an error breaks the build; keep other warnings fatal.
+CFLAGS+=-Wno-error=format
 CFLAGS+=-ffunction-sections -fdata-sections
 CFLAGS+=-MMD -MP
 CFLAGS+=-mcpu=cortex-m3 -mthumb
