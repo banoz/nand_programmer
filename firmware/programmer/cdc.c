@@ -13,6 +13,14 @@ static int cdc_send(uint8_t *data, uint32_t len)
 {
     uint32_t timeout = SEND_TIMEOUT;
 
+    /* CDC_Send_DATA takes Send_length as uint8_t; silently truncating a
+     * larger len would send a corrupted short packet instead of failing. */
+    if (len > 0xff)
+    {
+        ERROR_PRINT("Send length %lu exceeds CDC max packet size\r\n", len);
+        return -1;
+    }
+
     if (!CDC_IsPacketSent())
     {
         DEBUG_PRINT("Wait for previous CDC TX\r\n");

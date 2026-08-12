@@ -22,6 +22,8 @@ enum
     NP_ERR_LEN_EXCEEDED   = -111,
     NP_ERR_LEN_INVALID    = -112,
     NP_ERR_BBT_OVERFLOW   = -113,
+    NP_ERR_HAL_INVALID    = -114,
+    NP_ERR_PARAM_INVALID  = -115,
 };
 
 typedef struct
@@ -50,6 +52,8 @@ static code_str_t err[] =
     { NP_ERR_LEN_INVALID, "Wrong data length" },
     { NP_ERR_BBT_OVERFLOW, "Bad block table overflow. Probably some pins of "
         "chip are not connected to the programmer" },
+    { NP_ERR_HAL_INVALID, "Invalid HAL index in chip configuration" },
+    { NP_ERR_PARAM_INVALID, "Invalid chip configuration parameters" },
 };
 
 const char *errCode2str(long int code)

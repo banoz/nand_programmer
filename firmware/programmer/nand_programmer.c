@@ -67,6 +67,8 @@ enum
     NP_ERR_LEN_EXCEEDED   = -111,
     NP_ERR_LEN_INVALID    = -112,
     NP_ERR_BBT_OVERFLOW   = -113,
+    NP_ERR_HAL_INVALID    = -114,
+    NP_ERR_PARAM_INVALID  = -115,
 };
 
 typedef struct __attribute__((__packed__))
@@ -563,7 +565,7 @@ static int _np_cmd_nand_erase(np_prog_t *prog)
         return NP_ERR_LEN_NOT_ALIGN;
     }
 
-    if (addr + len > total_size)
+    if (addr > total_size || len > total_size - addr)
     {
         ERROR_PRINT("Erase address exceded 0x%" PRIx64 "+0x%" PRIx64
             " is more then chip size 0x%" PRIx64 "\r\n", addr, len, total_size);
@@ -667,7 +669,7 @@ static int np_cmd_nand_write_start(np_prog_t *prog)
         prog->total_size = prog->chip_info.total_size;
     }
 
-    if (addr + len > prog->total_size)
+    if (addr > prog->total_size || len > prog->total_size - addr)
     {
         ERROR_PRINT("Write address 0x%" PRIx64 "+0x%" PRIx64
             " is more then chip size 0x%" PRIx64 "\r\n", addr, len,
@@ -1003,7 +1005,7 @@ static int _np_cmd_nand_read(np_prog_t *prog)
         total_size = prog->chip_info.total_size;
     }
 
-    if (addr + len > total_size)
+    if (addr > total_size || len > total_size - addr)
     {
         ERROR_PRINT("Read address 0x%" PRIx64 "+0x%" PRIx64
             " is more then chip size 0x%" PRIx64 "\r\n", addr, len, total_size);
@@ -1144,6 +1146,19 @@ static int np_cmd_nand_conf(np_prog_t *prog)
     }
 
     conf_cmd = (np_conf_cmd_t *)prog->rx_buf;
+
+    if (conf_cmd->hal >= sizeof(hal) / sizeof(hal[0]))
+    {
+        ERROR_PRINT("Invalid HAL index %d\r\n", conf_cmd->hal);
+        return NP_ERR_HAL_INVALID;
+    }
+
+    if (!conf_cmd->page_size || !conf_cmd->block_size ||
+        conf_cmd->page_size + conf_cmd->spare_size > sizeof(prog->page.buf))
+    {
+        ERROR_PRINT("Invalid chip configuration parameters\r\n");
+        return NP_ERR_PARAM_INVALID;
+    }
 
     np_fill_chip_info(conf_cmd, prog);
     np_print_chip_info(prog);
@@ -1301,7 +1316,8 @@ static int np_cmd_fw_update_start(np_prog_t *prog)
     prog->block_size = FLASH_BLOCK_SIZE;
     prog->total_size = FLASH_SIZE;
 
-    if (addr + len > prog->base_addr + prog->total_size)
+    if (addr > prog->base_addr + prog->total_size ||
+        len > prog->base_addr + prog->total_size - addr)
     {
         ERROR_PRINT("Write address 0x%" PRIx64 "+0x%" PRIx64
             " is more then flash size 0x%" PRIx64 "\r\n", addr, len,

@@ -143,7 +143,8 @@ const QByteArray &ParallelChipInfo::getHalConf()
     conf.erase1Cmd = static_cast<uint8_t>(params[CHIP_PARAM_ERASE1_CMD]);
     conf.erase2Cmd = static_cast<uint8_t>(params[CHIP_PARAM_ERASE2_CMD]);
     conf.statusCmd = static_cast<uint8_t>(params[CHIP_PARAM_STATUS_CMD]);
-    conf.setFeaturesCmd = static_cast<uint8_t>(params[CHIP_PARAM_STATUS_CMD]);
+    conf.setFeaturesCmd =
+        static_cast<uint8_t>(params[CHIP_PARAM_SET_FEATURE_CMD]);
     conf.enableEccAddr =
         static_cast<uint8_t>(params[CHIP_PARAM_ENABLE_HW_ECC_ADDR]);
     conf.enableEccValue =
