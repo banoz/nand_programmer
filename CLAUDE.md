@@ -239,6 +239,18 @@ Renode notes learned the hard way:
   against the datasheet before touching either field.
 - The parallel-serial (`CHIP_HAL_PARALLEL_SERIAL`) path passes host tests but has
   **never been run on real hardware**, and its chip database is empty.
+- **The four ST/Numonyx `NAND*W3*` rows all declare the wrong `total size`,**
+  and their own device-ID bytes prove it. `NAND01GW3B` (`20 F1`, where `F1` is
+  the JEDEC code for 1 Gbit), `NAND02GW3B` (`20 DA`, 2 Gbit) and `NAND128W3A`
+  (`20 73`, 128 Mbit) every one declare `1073741824` — 8 Gbit. It looks like one
+  value pasted across the group. A too-large `total size` lets a full read or
+  write address past the end of the part, so this is the dangerous direction.
+  `NAND128W3A` is worse still: at 16 KB blocks its declared size implies 65536
+  blocks, over `NAND_BBT_MAX_BLOCKS`, so `nand_bad_block_table_init()` refuses it
+  and the chip cannot be configured at all. Correcting `total size` alone is not
+  enough — the row cycles then change too (`NAND01GW3B` would want 2, not 3), and
+  `NAND128W3A` has 512-byte pages but claims 2 column cycles where the other
+  small-page rows correctly use 1. These want a datasheet each, not arithmetic.
 - `NAND512W3A2C` carries the same five ID bytes as `S34ML04G1`
   (`01 DC 90 95 54`) and sits after it in the file, so `chipInfoGetByChipId()`
   — which returns the first match — can never select it. Its geometry is also
@@ -254,27 +266,33 @@ Renode notes learned the hard way:
 enable**, with pin 7 as `FSMC_NWAIT` (R/B#). **Socket pins 1-6 are
 unconnected**, and so is pin 19 (WP#).
 
-Multi-die stacks put their second CE# and R/B# in that pin 1-6 region, so on
-this board only die 0 of such a part is reachable. That is why `K9K8G08U0D` —
-Samsung 8 Gbit as two 4 Gbit dies, `3rd ID = 0x51` decoding to two dies — is in
-the database at **536870912 bytes (die 0, 4 Gbit) rather than its full 1 GiB**.
-Sizing it at 1 GiB would let reads run past the reachable die and let a write go
-out blind. Reaching die 1 needs a hardware change, not a database change.
+This matters only for parts that expose more than one chip enable. Samsung
+encodes that in position 9 of the part number, the "Mode" field of its official
+NAND part number decoder: `0` = Normal (single nCE, single R/nB), `1` = Dual nCE
+& Dual R/nB, `3` = Tri, `4`/`5` = Quad. **A `U1`/`U3`/`U4`/`U5` part can only
+reach its first chip enable on this board; a `U0` part is fully reachable.**
 
-Its ID is `EC D3 51 95`, **verified** against the SUNXI NFC MTD driver's chip
-table, which carries `{0xec, 0xd3, 0x51, 0x95}` for K9K8G08 with `id_len: 4` —
-so a production driver matches this part on four bytes. `ID5` is therefore `-`
-here, which makes NANDO's matcher stop at four bytes too; the fifth byte has two
-self-consistent readings (`0x54` for one die's two 2 Gbit planes, `0x58` for the
-package's four) and is not needed to identify the part.
+Die stacking is a separate field — position 3 — and does *not* imply multiple
+chip enables. `F`/`G` are single-die, `K` is an SLC die stack, `L` an MLC DDP,
+`W` an SLC 4-die stack. So `K9K8G08U0D` is two dies behind **one** CE and is
+fully addressable here at its whole 8 Gbit; `K9K8G08U1D` is the same density with
+two CEs and would present only half. `K9WAG08U1D` decodes as 16 Gbit / 4-die
+stack / dual CE, i.e. 8 Gbit per CE, which is consistent with how such parts are
+built.
 
-The same table cross-validates the 3rd-byte die-count decode (bits 1:0, where
-`00`=1 die and `01`=2) against Samsung's own part-family naming across seven
-entries: `K9F8G08` `0x50` and `K9G8G08` `0x14` decode to one die, `K9K8G08`
-`0x51` and `K9L8G08` `0x55` to two. K9F/K9G are single-die and K9K/K9L are
-two-die by convention, so all seven agree. It also confirms the existing
-`K9G8G08U0A` (`EC D3 14 A5`) and `K9G8G08U0M` (`EC D3 14 25`) rows byte for byte.
+`K9K8G08U0D` is therefore in the database at its full **1073741824 bytes**. Note
+that lands on exactly 8192 blocks, which is precisely `NAND_BBT_MAX_BLOCKS`: it
+fits, with nothing spare. A larger part, or this one with smaller blocks, would
+be refused by `nand_bad_block_table_init()`.
 
-Nothing here has been read off a chip — the programmer was not connected — but
-the two-die finding that drives the 4 Gbit sizing is corroborated
-independently of my own decode.
+Its ID is `EC D3 51 95`, verified against the SUNXI NFC MTD driver's chip table,
+which carries `{0xec, 0xd3, 0x51, 0x95}` for K9K8G08 with `id_len: 4` — a
+production driver matching this part on four bytes, which is what the row's
+`ID5 = -` does here too. The 3rd byte's die-count field (bits 1:0) was
+cross-checked against the family naming over seven entries in that table:
+`K9F8G08` `0x50` and `K9G8G08` `0x14` decode to one die, `K9K8G08` `0x51` and
+`K9L8G08` `0x55` to two, matching F/G single-die and K/L two-die. It also
+confirms the existing `K9G8G08U0A` (`EC D3 14 A5`) and `K9G8G08U0M`
+(`EC D3 14 25`) rows byte for byte.
+
+Nothing here has been read off a chip — the programmer was not connected.
