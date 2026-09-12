@@ -100,3 +100,22 @@ Add workflow CI
 ### Fixed
 Fix MacOS firmware issue
 Makefile improvements
+
+## [3.6.0] - 2026-09-12
+### Added
+Host-side ECC for NAND: BCH, Hamming and Reed-Solomon codecs, 12 layout
+presets, image probing before a write, and a spare-area settings dialog.
+Parallel serial (NOR) flash as a third HAL.
+Host test suite and a Renode simulation, neither needing hardware.
+Samsung K9K8G08U0D and ESMT F59L1G81MB to the parallel chip database.
+Confirmation prompt before writing a chip.
+### Fixed
+Bad block table is a per-block bitmap instead of a 20-entry list, so a chip
+with more bad blocks than that no longer fails outright.
+A failed page program aborts and retires the block instead of continuing
+and reporting success with that block's data lost.
+The failing page is reported correctly rather than an already-advanced one.
+Row cycles corrected for every 1 Gbit part in the parallel database.
+A write acknowledgement split across two reads no longer fails the transfer.
+Three 32-bit multiplies that overflow above 4 GB.
+SPL library built for the same device density as the application.
