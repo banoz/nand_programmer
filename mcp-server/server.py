@@ -137,8 +137,12 @@ async def _hw(ctx, worker, operation="operation"):
 
     def run():
         with _lock:
-            _prog.open()
+            # open() is inside the try: it performs the sync() handshake and
+            # can fail with the port already open. Leaving it outside stranded
+            # the port on the failed Programmer for the rest of the session,
+            # locking out every later call as well as the Qt app.
             try:
+                _prog.open()
                 return worker(report)
             finally:
                 if not HOLD_PORT:

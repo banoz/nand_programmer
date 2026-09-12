@@ -162,6 +162,47 @@ corrupts every read, program and erase. Always take them from the datasheet's
 address-cycle map, and note that within one part family the 1 Gb device often
 needs fewer row cycles than its 2/4 Gb siblings.
 
+## Flashing the programmer's own firmware
+
+Over SWD with an ST-Link:
+
+```bash
+cd firmware && make -f Makefile.linux
+st-flash read backup.bin 0x08000000 0x40000      # always back up first
+st-flash --reset write obj/nando_fw.bin 0x08000000
+```
+
+**Then physically unplug and replug the board's USB cable.** This is not
+optional and not a nicety:
+
+- `usb_init()` in `firmware/programmer/usb.c` busy-waits on
+  `USB_IsDeviceConfigured()` — i.e. `bDeviceState == CONFIGURED` — *before*
+  `cdc_init()` and before the `while (1) np_handler()` loop is ever reached.
+- The board's D+ pull-up is the fixed 1.5k R5, not a software-controlled one,
+  so the device never electrically detaches. `st-flash --reset` does an AIRCR
+  software reset (NRST is not wired), the host therefore never re-enumerates
+  and never sends SET_CONFIGURATION, and the firmware spins in `usb_init()`
+  forever.
+
+The failure looks alarming and is entirely benign: USB still shows the device
+(the descriptors were served before the reset), `/dev/ttyACM*` still exists, and
+every command times out. It is indistinguishable from a bricked flash unless you
+know to power-cycle. Verified by halting the core over SWD: the PC sits at
+`usb_init+0x12/0x16`, the `beq.n` back-edge of that wait loop.
+
+Two further notes from doing this on hardware:
+
+- Replug *slowly*. A disconnect ~3 s after a connect left the device enumerated
+  but unresponsive; a clean power cycle fixed it with no reflash.
+- `/dev/ttyACM*` numbering is not stable across replugs — the ST-Link's own VCP
+  and the programmer swap places. Match on VID/PID `0483:5740`, never on the
+  node name.
+
+To confirm which firmware is actually running, use behaviour rather than the
+version string, which has stayed `3.5.0` across these changes: on a chip with
+more than 20 bad blocks, `read_bad_blocks` fails in about a second with
+`NP_ERR_BBT_OVERFLOW` on stock firmware and completes with the bitmap.
+
 ## Build commands
 
 ```bash
