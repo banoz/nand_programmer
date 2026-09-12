@@ -239,3 +239,31 @@ Renode notes learned the hard way:
   against the datasheet before touching either field.
 - The parallel-serial (`CHIP_HAL_PARALLEL_SERIAL`) path passes host tests but has
   **never been run on real hardware**, and its chip database is empty.
+- `NAND512W3A2C` carries the same five ID bytes as `S34ML04G1`
+  (`01 DC 90 95 54`) and sits after it in the file, so `chipInfoGetByChipId()`
+  — which returns the first match — can never select it. Its geometry is also
+  the S34ML04G1 row's (2 KB page, 512 MiB) under a part number that is a
+  512 Mbit device with 512-byte pages, and whose maker code should be `20`
+  (ST), not `01`. Selecting it by hand would write 2 KB pages to a 512-byte-page
+  part. Left alone pending a datasheet: the row needs correcting or deleting,
+  not guessing.
+
+## Socket capability limit: single chip enable
+
+`kicad/nand_programmator.net` wires **pin 9 (`FSMC_NCE2`) as the only chip
+enable**, with pin 7 as `FSMC_NWAIT` (R/B#). **Socket pins 1-6 are
+unconnected**, and so is pin 19 (WP#).
+
+Multi-die stacks put their second CE# and R/B# in that pin 1-6 region, so on
+this board only die 0 of such a part is reachable. That is why `K9K8G08U0D` —
+Samsung 8 Gbit as two 4 Gbit dies, `3rd ID = 0x51` decoding to two dies — is in
+the database at **536870912 bytes (die 0, 4 Gbit) rather than its full 1 GiB**.
+Sizing it at 1 GiB would let reads run past the reachable die and let a write go
+out blind. Reaching die 1 needs a hardware change, not a database change.
+
+Its `ID5` is deliberately `-` so ID matching stops at four bytes: the fifth byte
+has two self-consistent readings (`0x54` describing one die's two 2 Gbit planes,
+`0x58` describing the package's four) and no hardware read has settled it. `ID3`
+(`0x51`) is likewise derived from the Samsung ID scheme rather than measured.
+Confirm both by plugging the part in and reading the raw ID, which is reported
+whether or not a database row matches.
