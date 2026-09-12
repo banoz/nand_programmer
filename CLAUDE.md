@@ -295,4 +295,24 @@ cross-checked against the family naming over seven entries in that table:
 confirms the existing `K9G8G08U0A` (`EC D3 14 A5`) and `K9G8G08U0M`
 (`EC D3 14 25`) rows byte for byte.
 
-Nothing here has been read off a chip — the programmer was not connected.
+**Confirmed on hardware.** A K9K8G08U0D in the socket reports
+`ec d3 51 95 58` — the predicted four bytes, plus a 5th of `0x58` (the
+package-level plane encoding: 4 planes x 2 Gbit = 8 Gbit). The row keeps
+`ID5 = -` deliberately, matching on four bytes as the SUNXI driver does, so it
+also covers sibling generations whose 5th byte differs.
+
+The full 1 GiB is genuinely reachable: comparing page *k* against page
+*k + 262144* across five populated offsets gave distinct content every time,
+where a part limited to its first die would have mirrored them. The upper-half
+pages read exactly `+0x10` from their lower-half counterparts in all five cases —
+deterministic, address-derived, not wrapped. Sequential pages advance the same
+pattern coherently, which also exercises `row cycles = 3`.
+
+Caution about *that* particular chip: it holds a full-chip test pattern covering
+the spare area as well as the main area, so its bad block markers are overwritten
+— 23 of the first 24 blocks read a non-`0xFF` marker byte. `read_bad_blocks` on
+it fails with `NP_ERR_BBT_OVERFLOW` almost immediately on stock 3.5.0 firmware,
+whose table holds 20 entries. The bitmap makes the table big enough to hold the
+answer but cannot make the answer meaningful: this part's factory bad block list
+is gone. See also the ECC design doc's warning that writing a foreign dump can
+mark good blocks bad.
