@@ -165,15 +165,16 @@ needs fewer row cycles than its 2/4 Gb siblings.
 ## Build commands
 
 ```bash
-# Firmware (needs --specs=nosys.specs: syscalls.c lacks _exit/_kill/_getpid,
-# which modern newlib requires. Pre-existing; not yet fixed in the Makefiles.)
-cd firmware/programmer
-make -f Makefile.linux CC=arm-none-eabi-gcc AR=arm-none-eabi-ar \
-  OBJCOPY=arm-none-eabi-objcopy OBJDUMP=arm-none-eabi-objdump \
-  SIZE=arm-none-eabi-size \
-  CFLAGS="-mcpu=cortex-m3 -mthumb -DSTM32F10X_HD -DUSE_STDPERIPH_DRIVER \
-          -Os -ffunction-sections -fdata-sections --specs=nosys.specs"
+# Firmware. Build from firmware/, which defines CFLAGS and the toolchain and
+# passes both down; it falls back to a system arm-none-eabi- when
+# ../../compiler is absent. syscalls.c now provides _exit/_kill/_getpid, so
+# --specs=nosys.specs is no longer required.
+cd firmware && make -f Makefile.linux
 ```
+
+`CFLAGS` in `firmware/Makefile.linux` carries `-Wno-error=format`: newer newlib
+ships an `inttypes.h` built without the C99 format macros (`PRIx64`), which
+`-Werror` would otherwise reject. Every other warning stays fatal.
 
 ```bash
 # Qt host app. CMake is the macOS path; qt.pro is used by the Linux/Windows
@@ -225,8 +226,16 @@ Renode notes learned the hard way:
   GCC is silent, clang warns, invalid under C2x.
 - `nand_uninit()` is still a `TODO`, so switching away from NAND leaves FSMC
   bank 2 configured.
-- Several 1 Gb entries (`K9F1G08U0D` and similar) specify 3 row cycles while
-  16-bit row addressing suggests 2. Only `S34ML01G1` has been verified against
-  its datasheet. Unaudited.
+- ~~Several 1 Gb entries specify 3 row cycles while 16-bit row addressing
+  suggests 2.~~ Audited: every row in `nando_parallel_chip_db.csv` now agrees
+  with `ceil(ceil(log2(total_size / page_size)) / 8)`. All thirteen 1 Gb
+  2 KB-page parts are on 2 row cycles and all ten 2 Gb parts on 3. Note the
+  table corroborated itself before the change — seven of the 1 Gb entries
+  already said 2, including `W29N01HVSINA` while its sibling `W29N01GV` said 3.
+- `H27UBG8T2A` is the one deliberate exception: it keeps 4 row cycles where the
+  formula wants 3. Its `total size` is `4294967295`, a clamped `2^32 - 1` rather
+  than the real 4 GiB, so the derived page count is wrong by construction and
+  the geometry cannot settle the question. It is a stacked-die part; confirm
+  against the datasheet before touching either field.
 - The parallel-serial (`CHIP_HAL_PARALLEL_SERIAL`) path passes host tests but has
   **never been run on real hardware**, and its chip database is empty.

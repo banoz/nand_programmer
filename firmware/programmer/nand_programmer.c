@@ -351,7 +351,7 @@ static int np_read_bad_block_info_from_page(np_prog_t *prog, uint32_t block,
     uint32_t page, bool *is_bad)
 {
     uint32_t status;
-    uint64_t addr = block * prog->chip_info.block_size;
+    uint64_t addr = (uint64_t)block * prog->chip_info.block_size;
     uint8_t *bb_mark = &prog->page.buf[prog->chip_info.page_size +
         prog->chip_info.bb_mark_off];
 
@@ -472,7 +472,7 @@ static int np_nand_mark_bad(np_prog_t *prog, uint32_t page)
 static int np_nand_erase(np_prog_t *prog, uint32_t page)
 {
     uint32_t status;
-    uint64_t addr = page * prog->chip_info.page_size;
+    uint64_t addr = (uint64_t)page * prog->chip_info.page_size;
     
     DEBUG_PRINT("NAND erase at 0x%" PRIx64 "\r\n", addr);
 
@@ -1196,7 +1196,7 @@ static int np_send_bad_blocks(np_prog_t *prog)
 
     while (nand_bad_block_table_iter(&bb_iter, &page))
     {
-        if (np_send_bad_block_info(page * prog->chip_info.page_size,
+        if (np_send_bad_block_info((uint64_t)page * prog->chip_info.page_size,
             prog->chip_info.block_size, false))
         {
             return -1;

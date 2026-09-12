@@ -685,6 +685,31 @@ void MainWindow::slotProgWrite()
     int index;
     QString chipName;
 
+    /* Confirm before the destructive part. Checked before the file is opened
+     * so the prompt can name the chip, and defaulted to Cancel. The image
+     * layout probe below runs afterwards and can still refuse the write. */
+    index = ui->chipSelectComboBox->currentIndex();
+    chipName = ui->chipSelectComboBox->currentText();
+    if (index <= CHIP_INDEX_DEFAULT || chipName.isEmpty() ||
+        chipName == CHIP_NAME_DEFAULT)
+    {
+        qInfo() << "Chip is not selected";
+        return;
+    }
+
+    QMessageBox confirm(this);
+    confirm.setWindowTitle(tr("Confirm write"));
+    confirm.setText(tr("Write to chip %1?\nThis erases and overwrites the "
+        "selected block range.").arg(chipName));
+    confirm.setIcon(QMessageBox::Warning);
+    confirm.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
+    confirm.setDefaultButton(QMessageBox::Cancel);
+    if (confirm.exec() != QMessageBox::Ok)
+    {
+        qInfo() << "Write cancelled";
+        return;
+    }
+
     workFile.setFileName(ui->filePathLineEdit->text());
     if (!workFile.open(QIODevice::ReadOnly))
     {
@@ -698,14 +723,6 @@ void MainWindow::slotProgWrite()
         return;
     }
 
-    index = ui->chipSelectComboBox->currentIndex();
-    if (index <= CHIP_INDEX_DEFAULT)
-    {
-        qInfo() << "Chip is not selected";
-        return;
-    }
-
-    chipName = ui->chipSelectComboBox->currentText();
     pageSize = prog->isIncSpare() ?
         currentChipDb->extendedPageSizeGetByName(chipName) :
         currentChipDb->pageSizeGetByName(chipName);
