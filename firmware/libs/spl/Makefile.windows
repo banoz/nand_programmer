@@ -9,7 +9,7 @@ TOOLCHAIN=arm-none-eabi-
 CC=$(TOOLCHAIN)gcc.exe
 AR=$(TOOLCHAIN)ar.exe
 
-CHIP=STM32F10X_MD
+CHIP=STM32F10X_HD
 
 CONFIG_FILE=stm32f10x_conf.h
 

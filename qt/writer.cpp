@@ -75,11 +75,11 @@ int Writer::handleWriteAck(RespHeader *header, uint32_t len)
 {
     int size = sizeof(RespWriteAck);
 
+    /* The ack can arrive split across two reads. Returning 0 asks the caller
+     * for more data, as handleBadBlock() and handleError() already do;
+     * failing here aborted the whole write on a packet boundary. */
     if (len < static_cast<uint32_t>(size))
-    {
-        logErr(QString("Write ack response is too short %1").arg(len));
-        return -1;
-    }
+        return 0;
 
     bytesAcked = (reinterpret_cast<RespWriteAck *>(header))->ackBytes;
 

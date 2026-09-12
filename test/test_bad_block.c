@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 static int failures;
 
@@ -166,6 +167,50 @@ static void test_write_skip_semantics(void)
     expect(page == 11 * PPB, "and lands on the next block boundary");
 }
 
+static void test_bitmap_indexing(void)
+{
+    printf("-- bitmap indexing --\n");
+
+    /* A bitmap addresses each block as a bit within a byte, so an error in the
+     * shift or the byte index shows up as a neighbour reading back marked.
+     * Mark every even block across the whole table and require every odd one
+     * to stay clear, which crosses all 1024 byte boundaries in both roles.
+     */
+    uint32_t block, marked = 0, wrong_set = 0, wrong_clear = 0;
+
+    nand_bad_block_table_init(PPB, NAND_BBT_MAX_BLOCKS);
+
+    for (block = 0; block < NAND_BBT_MAX_BLOCKS; block += 2)
+    {
+        if (!nand_bad_block_table_add(block * PPB))
+            marked++;
+    }
+
+    expect(marked == NAND_BBT_MAX_BLOCKS / 2, "every even block recorded");
+    expect(nand_bad_block_table_count() == NAND_BBT_MAX_BLOCKS / 2,
+        "count agrees");
+
+    for (block = 0; block < NAND_BBT_MAX_BLOCKS; block++)
+    {
+        bool is_bad = nand_bad_block_table_lookup(block * PPB);
+
+        if (!(block & 1) && !is_bad)
+            wrong_clear++;
+        else if ((block & 1) && is_bad)
+            wrong_set++;
+    }
+
+    expect(!wrong_clear, "no marked block reads back clear");
+    expect(!wrong_set, "no unmarked block reads back marked");
+
+    /* And the whole table can be filled, so nothing caps out early. */
+    nand_bad_block_table_init(PPB, NAND_BBT_MAX_BLOCKS);
+    for (block = 0; block < NAND_BBT_MAX_BLOCKS; block++)
+        nand_bad_block_table_add(block * PPB);
+    expect(nand_bad_block_table_count() == NAND_BBT_MAX_BLOCKS,
+        "the full table can be marked");
+}
+
 int main(void)
 {
     printf("=== NANDO bad block table tests ===\n");
@@ -174,6 +219,7 @@ int main(void)
     test_capacity();
     test_geometry_limits();
     test_iteration();
+    test_bitmap_indexing();
     test_write_skip_semantics();
 
     printf("=== %s (%d failure%s) ===\n", failures ? "FAIL" : "PASS", failures,
