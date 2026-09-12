@@ -58,6 +58,34 @@ Destructive -- confirm with the user before calling:
 - `write_range(addr, length, path, erase_first)` -- the same over
   `[addr, addr+length)` only; everything outside is untouched.
 
+### Watching a long operation
+
+`dump_full` takes about four minutes and `write` about twelve. Progress goes
+to two places:
+
+* **MCP progress notifications**, which only reach the client if it asked for
+  them by sending a `progressToken` with the call, and which it is free not to
+  display. Nothing the server can do makes an uninterested client show them.
+* **A progress log**, appended to `dumps/nando_progress.log` (override with
+  `NANDO_PROGRESS_LOG`), which always works:
+
+  ```
+  tail -f ~/Documents/Nando/dumps/nando_progress.log
+  ```
+
+  Each operation writes a header recording whether the client requested MCP
+  progress, then a rate-limited percentage line, then how it ended. The path
+  is also returned in the result of every long-running tool.
+
+### Sharing the programmer
+
+The port is opened exclusively, but only for the duration of a call: it is
+released between tool calls so the Qt host app, `ubootwrite.py` or any other
+script can use the programmer while this server is running. Set
+`NANDO_HOLD_PORT=1` to keep it open for the life of the server instead --
+faster by a few milliseconds per call, at the cost of locking every other tool
+out of the device until the server exits.
+
 ### Addressing
 
 Every address and length is in **main+spare (OOB-inclusive)** terms, because

@@ -165,13 +165,21 @@ class Link:
     """
 
     def __init__(self, path=None):
+        # A path passed here is a deliberate pin and is honoured on every
+        # (re)open. Without one we locate the programmer by VID/PID each time
+        # the port is opened: it does not always come back on the same
+        # /dev/ttyACM* node after a re-enumeration (a USB drop mid-command is
+        # enough), so caching whichever node we happened to find first would
+        # strand every later reopen -- including reconnect() -- on a name that
+        # no longer exists.
+        self.pinned = path is not None
         self.path = path
         self.fd = None
 
     def open(self):
         if self.fd is not None:
             return self
-        path = self.path or find_device()
+        path = self.path if self.pinned else find_device()
         try:
             fd = os.open(path, os.O_RDWR | os.O_NOCTTY)
         except OSError as e:
@@ -498,21 +506,29 @@ class Programmer:
         return self
 
     def sync(self):
-        """Drain until the device is quiet, then prove the stream is clean by
-        round-tripping a VERSION_GET. Cheap (one quiet interval) when the
-        device is already idle."""
+        """Prove the stream is clean, draining it first if it is not.
+
+        Two VERSION_GET round trips have to agree: a dirty stream can by
+        chance produce one response-shaped read, but not two identical ones.
+        On an idle device this is the fast path and costs a few milliseconds,
+        which is what makes opening per operation affordable."""
         last = None
-        for attempt in range(3):
-            # First pass assumes a small overrun; later passes allow for a
-            # full segment still being in flight.
-            self.link.resync(outstanding=0 if attempt == 0 else 16 * 1024 * 1024)
+        for attempt in range(4):
+            if attempt:
+                # First pass assumes nothing is in flight; later passes allow
+                # for a whole segment still being streamed at us.
+                self.link.resync(
+                    outstanding=0 if attempt == 1 else 16 * 1024 * 1024)
             try:
-                return self.version()
+                first = self.version()
+                if first == self.version():
+                    return first
+                last = LinkError(f"inconsistent version reads: {first}")
             except LinkError as e:
                 last = e
         raise LinkError(
-            f"programmer did not return a valid version after draining the "
-            f"stream three times -- last error: {last}")
+            f"programmer did not return a consistent version after draining "
+            f"the stream -- last error: {last}")
 
     def close(self):
         self.link.close()

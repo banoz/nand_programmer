@@ -39,6 +39,21 @@ READ_RETRIES = 5
 # Don't emit more than this many progress notifications per second.
 PROGRESS_INTERVAL = 0.5
 
+# Progress is also appended here, so a human can watch a long operation with
+# `tail -f` regardless of whether the MCP client renders progress
+# notifications -- the client only receives them if it asked for them by
+# sending a progressToken, and it is under no obligation to show them.
+PROGRESS_LOG = os.environ.get("NANDO_PROGRESS_LOG",
+                              os.path.join(DUMP_DIR, "nando_progress.log"))
+PROGRESS_LOG_MAX = 1 << 20
+
+# Release the serial port between tool calls so the Qt host app, ubootwrite.py
+# or a plain script can use the programmer while this server is running. The
+# port is opened exclusively while an operation is in flight, so holding it
+# permanently would lock every other tool out for the life of the session.
+# Set NANDO_HOLD_PORT=1 to keep it open instead.
+HOLD_PORT = os.environ.get("NANDO_HOLD_PORT", "") not in ("", "0", "false")
+
 mcp = MCPServer(
     "nando",
     instructions=(
@@ -56,34 +71,86 @@ _lock = threading.RLock()
 
 
 class _Progress:
-    """Bridges progress from the worker thread back to the event loop, rate
-    limited so a fast inner loop cannot flood the client."""
+    """Reports progress on two channels, rate limited so a fast inner loop
+    cannot flood either.
 
-    def __init__(self, ctx):
+    The MCP notification only goes anywhere if the client asked for progress;
+    the log file always works, which is what makes a four-minute dump
+    watchable from a terminal."""
+
+    def __init__(self, ctx, operation):
         self.ctx = ctx
+        self.operation = operation
         self.last = 0.0
+        self.mcp_requested = _wants_mcp_progress(ctx)
+        self._log_header()
+
+    def _log(self, line):
+        try:
+            with open(PROGRESS_LOG, "a") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {line}\n")
+        except OSError:
+            pass  # never fail an operation because the log is unwritable
+
+    def _log_header(self):
+        try:
+            os.makedirs(os.path.dirname(PROGRESS_LOG) or ".", exist_ok=True)
+            if os.path.exists(PROGRESS_LOG) and \
+                    os.path.getsize(PROGRESS_LOG) > PROGRESS_LOG_MAX:
+                os.remove(PROGRESS_LOG)
+        except OSError:
+            pass
+        self._log(f"=== {self.operation} started (pid {os.getpid()}, "
+                  f"mcp progress {'requested' if self.mcp_requested else 'NOT requested'} "
+                  f"by the client) ===")
 
     def __call__(self, current, total, message="", force=False):
-        if self.ctx is None:
-            return
         now = time.monotonic()
         if not force and now - self.last < PROGRESS_INTERVAL:
             return
         self.last = now
-        anyio.from_thread.run(self.ctx.report_progress, float(current),
-                              float(total), message)
+        pct = (100.0 * current / total) if total else 0.0
+        self._log(f"[{pct:5.1f}%] {message}")
+        if self.ctx is not None:
+            anyio.from_thread.run(self.ctx.report_progress, float(current),
+                                  float(total), message)
+
+    def finish(self, outcome):
+        self._log(f"=== {self.operation} {outcome} ===")
 
 
-async def _hw(ctx, worker):
+def _wants_mcp_progress(ctx):
+    """Whether the client attached a progressToken to this call. Without one
+    the SDK drops every progress notification silently."""
+    if ctx is None:
+        return False
+    try:
+        meta = ctx.request_context.meta or {}
+    except Exception:
+        return False
+    return bool(meta.get("progress_token") or meta.get("progressToken"))
+
+
+async def _hw(ctx, worker, operation="operation"):
     """Run `worker(report)` against the programmer in a worker thread."""
-    report = _Progress(ctx)
+    report = _Progress(ctx, operation)
 
     def run():
         with _lock:
             _prog.open()
-            return worker(report)
+            try:
+                return worker(report)
+            finally:
+                if not HOLD_PORT:
+                    _prog.close()
 
-    return await anyio.to_thread.run_sync(run, abandon_on_cancel=False)
+    try:
+        result = await anyio.to_thread.run_sync(run, abandon_on_cancel=False)
+    except BaseException as e:
+        report.finish(f"FAILED: {type(e).__name__}: {e}")
+        raise
+    report.finish("finished")
+    return result
 
 
 def _mb(n):
@@ -203,7 +270,7 @@ async def identify(ctx: Context) -> dict:
     version, raw ID bytes, and the matched chip database entry with both the
     datasheet sizes and the effective (main+spare) ones every other tool
     addresses in. Safe, read-only."""
-    return await _hw(ctx, lambda report: _prog.identify())
+    return await _hw(ctx, lambda report: _prog.identify(), "identify")
 
 
 @mcp.tool()
@@ -215,7 +282,7 @@ async def reset_link(ctx: Context) -> dict:
     def worker(report):
         _prog.reconnect()
         return {"port": _prog.link.path, "state": "reconnected"}
-    return await _hw(ctx, worker)
+    return await _hw(ctx, worker, "reset_link")
 
 
 @mcp.tool()
@@ -264,7 +331,7 @@ async def conn_check(ctx: Context) -> dict:
             "verdict": "ok" if healthy == len(samples) else
                        "possible contact issue -- reseat the chip and retry",
         }
-    return await _hw(ctx, worker)
+    return await _hw(ctx, worker, "conn_check")
 
 
 @mcp.tool()
@@ -273,7 +340,7 @@ async def bad_block_scan(ctx: Context) -> dict:
     table scan; if the chip has more bad blocks than the firmware's 20-entry
     table holds, automatically falls back to reading the OOB marker bytes from
     a full raw read (much slower). Safe, read-only."""
-    return await _hw(ctx, _scan_bad_blocks)
+    return await _hw(ctx, _scan_bad_blocks, "bad_block_scan")
 
 
 @mcp.tool()
@@ -315,8 +382,9 @@ async def read_range(ctx: Context, addr: int, length: int,
             "preview_hex": head.hex(),
             "bad_blocks_encountered": [f"{kind}@0x{a:x}" for kind, a, _ in skipped],
             "elapsed_s": round(time.monotonic() - t0, 1),
+            "progress_log": PROGRESS_LOG,
         }
-    return await _hw(ctx, worker)
+    return await _hw(ctx, worker, f"read_range 0x{addr:x}+0x{length:x}")
 
 
 @mcp.tool()
@@ -380,8 +448,9 @@ async def dump_full(ctx: Context, label: str = "", raw: bool = True) -> dict:
         }
         if known_bad is not None:
             result["bad_blocks_skipped"] = known_bad
+        result["progress_log"] = PROGRESS_LOG
         return result
-    return await _hw(ctx, worker)
+    return await _hw(ctx, worker, f"dump_full{' raw' if raw else ' skip-bb'}")
 
 
 def _write_verify(report, chip, addr, length, path, erase_first):
@@ -440,6 +509,7 @@ def _write_verify(report, chip, addr, length, path, erase_first):
         "bad_blocks_reported": [f"{kind}@0x{a:x}" for kind, a, _ in bad],
         "write_s": round(write_s, 1),
         "result": "PASS" if mismatches == 0 else "FAIL",
+        "progress_log": PROGRESS_LOG,
     }
 
 
@@ -464,7 +534,7 @@ async def write(ctx: Context, path: str, erase_first: bool = True) -> dict:
                 f"{total_eff} -- refusing to write. Use write_range() for a "
                 f"partial image.")
         return _write_verify(report, chip, 0, total_eff, path, erase_first)
-    return await _hw(ctx, worker)
+    return await _hw(ctx, worker, f"write {os.path.basename(path)} (whole chip)")
 
 
 @mcp.tool()
@@ -488,7 +558,8 @@ async def write_range(ctx: Context, addr: int, length: int, path: str,
                 f"file size {size} does not match the requested length "
                 f"{length} -- refusing to write")
         return _write_verify(report, chip, addr, length, path, erase_first)
-    return await _hw(ctx, worker)
+    return await _hw(ctx, worker,
+                     f"write_range 0x{addr:x}+0x{length:x} <- {os.path.basename(path)}")
 
 
 if __name__ == "__main__":
