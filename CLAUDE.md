@@ -261,9 +261,20 @@ the database at **536870912 bytes (die 0, 4 Gbit) rather than its full 1 GiB**.
 Sizing it at 1 GiB would let reads run past the reachable die and let a write go
 out blind. Reaching die 1 needs a hardware change, not a database change.
 
-Its `ID5` is deliberately `-` so ID matching stops at four bytes: the fifth byte
-has two self-consistent readings (`0x54` describing one die's two 2 Gbit planes,
-`0x58` describing the package's four) and no hardware read has settled it. `ID3`
-(`0x51`) is likewise derived from the Samsung ID scheme rather than measured.
-Confirm both by plugging the part in and reading the raw ID, which is reported
-whether or not a database row matches.
+Its ID is `EC D3 51 95`, **verified** against the SUNXI NFC MTD driver's chip
+table, which carries `{0xec, 0xd3, 0x51, 0x95}` for K9K8G08 with `id_len: 4` —
+so a production driver matches this part on four bytes. `ID5` is therefore `-`
+here, which makes NANDO's matcher stop at four bytes too; the fifth byte has two
+self-consistent readings (`0x54` for one die's two 2 Gbit planes, `0x58` for the
+package's four) and is not needed to identify the part.
+
+The same table cross-validates the 3rd-byte die-count decode (bits 1:0, where
+`00`=1 die and `01`=2) against Samsung's own part-family naming across seven
+entries: `K9F8G08` `0x50` and `K9G8G08` `0x14` decode to one die, `K9K8G08`
+`0x51` and `K9L8G08` `0x55` to two. K9F/K9G are single-die and K9K/K9L are
+two-die by convention, so all seven agree. It also confirms the existing
+`K9G8G08U0A` (`EC D3 14 A5`) and `K9G8G08U0M` (`EC D3 14 25`) rows byte for byte.
+
+Nothing here has been read off a chip — the programmer was not connected — but
+the two-die finding that drives the 4 Gbit sizing is corroborated
+independently of my own decode.
